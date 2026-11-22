@@ -1,186 +1,235 @@
 #!/usr/bin/env python3
-"""Draw the front page for Sunday 22 November 2026.
+"""Render the front page for Sunday 22 November 2026.
 
-One-page newspaper, 1024x1024 PNG. Deterministic: fixed layout, fixed
-text, no randomness, no timestamps. Run: python3 render.py
+A one-page newspaper drawn with Pillow, 1024 by 1024 pixels. Every word
+and every position is fixed in this file, so running it twice produces
+the same bytes. Run: python3 render.py
 """
 import math
-import os
+from pathlib import Path
+
 from PIL import Image, ImageDraw, ImageFont
 
-HERE = os.path.dirname(os.path.abspath(__file__))
-W, H = 1024, 1024
+ROOT = Path(__file__).resolve().parent
+SIDE = 1024
+EDGE = 36
 
-PAPER = (247, 243, 234)
-INK = (26, 26, 26)
-RED = (163, 29, 29)
-GREEN = (28, 78, 58)
-TEAL = (36, 110, 96)
-SEA = (52, 128, 122)
-GREY = (110, 105, 95)
-GOLD = (214, 158, 46)
-SKY = (214, 232, 226)
+PALETTE = {
+    "paper": (247, 243, 234),
+    "ink": (26, 26, 26),
+    "red": (163, 29, 29),
+    "green": (28, 78, 58),
+    "sea": (52, 128, 122),
+    "grey": (110, 105, 95),
+    "gold": (214, 158, 46),
+    "sky": (214, 232, 226),
+    "cream": (247, 243, 234),
+    "hill": (122, 158, 132),
+    "hill2": (96, 138, 112),
+    "foam": (190, 220, 214),
+    "white": (255, 255, 255),
+}
 
-SERIF = "/usr/share/fonts/truetype/dejavu/DejaVuSerif.ttf"
-SERIF_B = "/usr/share/fonts/truetype/dejavu/DejaVuSerif-Bold.ttf"
-SANS = "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf"
-SANS_B = "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"
-
-
-def font(path, size):
-    return ImageFont.truetype(path, size)
-
-
-def wrap(d, text, f, max_w):
-    """Greedy word wrap by measured width; returns list of lines."""
-    lines, cur = [], ""
-    for word in text.split():
-        trial = (cur + " " + word).strip()
-        if d.textlength(trial, font=f) <= max_w:
-            cur = trial
-        else:
-            if cur:
-                lines.append(cur)
-            cur = word
-    if cur:
-        lines.append(cur)
-    return lines
+DEJAVU = Path("/usr/share/fonts/truetype/dejavu")
 
 
-def para(d, x, y, text, f, max_w, leading, color=INK):
-    """Draw wrapped paragraph; returns y just below the last line."""
-    for line in wrap(d, text, f, max_w):
-        d.text((x, y), line, font=f, fill=color)
-        y += leading
-    return y
+def face(kind, size):
+    names = {
+        "serif": "DejaVuSerif.ttf",
+        "serif-bold": "DejaVuSerif-Bold.ttf",
+        "sans": "DejaVuSans.ttf",
+        "sans-bold": "DejaVuSans-Bold.ttf",
+    }
+    return ImageFont.truetype(str(DEJAVU / names[kind]), size)
 
 
-def rule(d, x, y, w, color=INK, width=2):
-    d.line([(x, y), (x + w, y)], fill=color, width=width)
+class Sheet:
+    """A drawing surface plus the small helpers the page is built from."""
+
+    def __init__(self):
+        self.image = Image.new("RGB", (SIDE, SIDE), PALETTE["paper"])
+        self.pen = ImageDraw.Draw(self.image)
+
+    def hline(self, left, top, length, colour, thick=2):
+        self.pen.line([(left, top), (left + length, top)], fill=colour,
+                      width=thick)
+
+    def label(self, left, top, words, kind, size, colour):
+        self.pen.text((left, top), words, font=face(kind, size), fill=colour)
+
+    def width_of(self, words, kind, size):
+        return self.pen.textlength(words, font=face(kind, size))
+
+    def split(self, words, kind, size, max_width):
+        """Break words into lines that fit max_width, measured exactly."""
+        done, current = [], ""
+        for word in words.split():
+            candidate = (current + " " + word).strip()
+            if self.width_of(candidate, kind, size) <= max_width:
+                current = candidate
+            else:
+                if current:
+                    done.append(current)
+                current = word
+        if current:
+            done.append(current)
+        return done
+
+    def paragraph(self, left, top, words, kind, size, max_width, spacing,
+                  colour=None):
+        """Draw a wrapped block of text; return the y below its last line."""
+        ink = colour if colour is not None else PALETTE["ink"]
+        cursor = top
+        for row in self.split(words, kind, size, max_width):
+            self.label(left, cursor, row, kind, size, ink)
+            cursor += spacing
+        return cursor
+
+    def save(self, name="entry.png"):
+        target = ROOT / name
+        self.image.save(target, format="PNG", optimize=True)
+        return target
 
 
-def draw_scene(d, x, y, w, h):
-    """Morning sun over the sea off Antalya, with wind turbines on the
-    shore: a pale sky, a low gold sun, teal sea bands, three turbines.
-    Pure vector shapes."""
-    d.rectangle([x, y, x + w, y + h], fill=SKY)
-    # sun
-    sx, sy, sr = x + w * 0.72, y + h * 0.34, 30
-    d.ellipse([sx - sr, sy - sr, sx + sr, sy + sr], fill=GOLD)
-    for k in range(8):
-        a = k * math.pi / 4
-        x1 = sx + (sr + 4) * math.cos(a)
-        y1 = sy + (sr + 4) * math.sin(a)
-        x2 = sx + (sr + 16) * math.cos(a)
-        y2 = sy + (sr + 16) * math.sin(a)
-        d.line([(x1, y1), (x2, y2)], fill=GOLD, width=3)
-    # distant hills
-    d.polygon([(x, y + h * 0.62), (x + w * 0.30, y + h * 0.44),
-               (x + w * 0.55, y + h * 0.62)], fill=(122, 158, 132))
-    d.polygon([(x + w * 0.45, y + h * 0.62), (x + w * 0.75, y + h * 0.48),
-               (x + w, y + h * 0.62)], fill=(96, 138, 112))
-    # sea
-    d.rectangle([x, y + h * 0.62, x + w, y + h], fill=SEA)
-    for wy, ww in [(0.70, 0.55), (0.78, 0.75), (0.86, 0.45), (0.93, 0.65)]:
-        yy = y + h * wy
-        d.line([(x + w * (1 - ww) / 2, yy), (x + w * (1 + ww) / 2, yy)],
-               fill=(190, 220, 214), width=3)
-    # sun reflection
-    for k in range(4):
-        ry = y + h * (0.68 + k * 0.07)
-        rw = 90 - k * 18
-        d.line([(sx - rw / 2, ry), (sx + rw / 2, ry)], fill=GOLD, width=3)
-    # wind turbines on the shore
-    for tx, th in [(0.10, 0.42), (0.24, 0.34), (0.38, 0.46)]:
-        bx = x + w * tx
-        base = y + h * 0.62
-        top = base - h * th
-        d.line([(bx, base), (bx, top)], fill=(247, 243, 234), width=4)
-        for ang in (90, 210, 330):
-            a = math.radians(ang)
-            d.line([(bx, top),
-                    (bx + 26 * math.cos(a), top + 26 * math.sin(a))],
-                   fill=(247, 243, 234), width=3)
-        d.ellipse([bx - 3, top - 3, bx + 3, top + 3], fill=(247, 243, 234))
-    # birds
-    for bx, by in [(0.58, 0.16), (0.66, 0.22), (0.52, 0.26)]:
-        px, py = x + w * bx, y + h * by
-        d.arc([px - 8, py - 6, px, py + 6], 200, 340, fill=INK, width=2)
-        d.arc([px, py - 6, px + 8, py + 6], 200, 340, fill=INK, width=2)
+def turbine(sheet, foot_x, ground_y, height):
+    """One white wind turbine: pole, hub, three blades."""
+    top_y = ground_y - height
+    sheet.pen.line([(foot_x, ground_y), (foot_x, top_y)],
+                   fill=PALETTE["cream"], width=4)
+    for degrees in (90, 210, 330):
+        angle = math.radians(degrees)
+        sheet.pen.line(
+            [(foot_x, top_y),
+             (foot_x + 26 * math.cos(angle), top_y + 26 * math.sin(angle))],
+            fill=PALETTE["cream"], width=3)
+    sheet.pen.ellipse([foot_x - 3, top_y - 3, foot_x + 3, top_y + 3],
+                      fill=PALETTE["cream"])
 
 
-def main():
-    img = Image.new("RGB", (W, H), PAPER)
-    d = ImageDraw.Draw(img)
-    M = 36
-    CW = W - 2 * M
+def morning_sea(sheet, left, top, width, height):
+    """Sun over the sea off Antalya, with turbines on the shore."""
+    sheet.pen.rectangle([left, top, left + width, top + height],
+                        fill=PALETTE["sky"])
+    sun_x = left + width * 0.72
+    sun_y = top + height * 0.34
+    radius = 30
+    sheet.pen.ellipse([sun_x - radius, sun_y - radius,
+                       sun_x + radius, sun_y + radius], fill=PALETTE["gold"])
+    for step in range(8):
+        angle = step * math.pi / 4
+        near = (sun_x + (radius + 4) * math.cos(angle),
+                sun_y + (radius + 4) * math.sin(angle))
+        far = (sun_x + (radius + 16) * math.cos(angle),
+               sun_y + (radius + 16) * math.sin(angle))
+        sheet.pen.line([near, far], fill=PALETTE["gold"], width=3)
+    horizon = top + height * 0.62
+    sheet.pen.polygon(
+        [(left, horizon), (left + width * 0.30, top + height * 0.44),
+         (left + width * 0.55, horizon)], fill=PALETTE["hill"])
+    sheet.pen.polygon(
+        [(left + width * 0.45, horizon),
+         (left + width * 0.75, top + height * 0.48),
+         (left + width, horizon)], fill=PALETTE["hill2"])
+    sheet.pen.rectangle([left, horizon, left + width, top + height],
+                        fill=PALETTE["sea"])
+    for frac, span in [(0.70, 0.55), (0.78, 0.75), (0.86, 0.45),
+                       (0.93, 0.65)]:
+        wave_y = top + height * frac
+        sheet.pen.line(
+            [(left + width * (1 - span) / 2, wave_y),
+             (left + width * (1 + span) / 2, wave_y)],
+            fill=PALETTE["foam"], width=3)
+    for step in range(4):
+        glint_y = top + height * (0.68 + step * 0.07)
+        glint_w = 90 - step * 18
+        sheet.pen.line([(sun_x - glint_w / 2, glint_y),
+                        (sun_x + glint_w / 2, glint_y)],
+                       fill=PALETTE["gold"], width=3)
+    for frac_x, frac_h in [(0.10, 0.42), (0.24, 0.34), (0.38, 0.46)]:
+        turbine(sheet, left + width * frac_x, horizon, height * frac_h)
+    for frac_x, frac_y in [(0.58, 0.16), (0.66, 0.22), (0.52, 0.26)]:
+        bird_x, bird_y = left + width * frac_x, top + height * frac_y
+        sheet.pen.arc([bird_x - 8, bird_y - 6, bird_x, bird_y + 6],
+                      200, 340, fill=PALETTE["ink"], width=2)
+        sheet.pen.arc([bird_x, bird_y - 6, bird_x + 8, bird_y + 6],
+                      200, 340, fill=PALETTE["ink"], width=2)
 
-    # ---- Masthead ----
-    d.rectangle([0, 0, W, 104], fill=GREEN)
-    f_mast = font(SERIF_B, 78)
-    t = "THE WORLD"
-    d.text(((W - d.textlength(t, font=f_mast)) / 2, 8), t, font=f_mast,
-           fill=(247, 243, 234))
-    f_date = font(SANS_B, 24)
-    d.text((M, 118), "SUNDAY 22 NOVEMBER 2026", font=f_date, fill=INK)
-    tag = "ONE DAY · ONE PAGE"
-    d.text((W - M - d.textlength(tag, font=f_date), 118), tag, font=f_date,
-           fill=RED)
-    rule(d, M, 150, CW, INK, 3)
 
-    # ---- Lead story (left, x36-632) ----
-    lx, ly, lw = M, 166, 596
-    f_kick = font(SANS_B, 19)
-    d.text((lx, ly), "CLIMATE", font=f_kick, fill=RED)
-    y = ly + 28
-    y = para(d, lx, y, "COP31 deal drops fossil fuels",
-             font(SERIF_B, 43), lw, 50)
-    y += 6
-    draw_scene(d, lx, y, lw, 148)
-    y += 148 + 10
-    y = para(d, lx, y,
-             "The final draft released in the early hours of Sunday in "
-             "Antalya makes no mention of fossil fuels in its ten pages. "
-             "Electricity is to supply 35% of final energy by 2035.",
-             font(SERIF, 20), lw, 27)
-    y += 4
-    y = para(d, lx, y,
-             "Delegates vote on Sunday morning after two days of overtime.",
-             font(SERIF_B, 20), lw, 27)
-    assert y <= 630, f"lead overflow: {y}"
+def masthead(sheet):
+    sheet.pen.rectangle([0, 0, SIDE, 104], fill=PALETTE["green"])
+    title = "THE WORLD"
+    title_w = sheet.width_of(title, "serif-bold", 78)
+    sheet.label((SIDE - title_w) / 2, 8, title, "serif-bold", 78,
+                PALETTE["cream"])
+    sheet.label(EDGE, 118, "SUNDAY 22 NOVEMBER 2026", "sans-bold", 24,
+                PALETTE["ink"])
+    tagline = "ONE DAY · ONE PAGE"
+    tag_w = sheet.width_of(tagline, "sans-bold", 24)
+    sheet.label(SIDE - EDGE - tag_w, 118, tagline, "sans-bold", 24,
+                PALETTE["red"])
+    sheet.hline(EDGE, 150, SIDE - 2 * EDGE, PALETTE["ink"], 3)
 
-    # ---- Right column (x668-988) ----
-    rx, rw = 668, W - M - 668
-    d.text((rx, ly), "GULF", font=f_kick, fill=RED)
-    y2 = ly + 28
-    y2 = para(d, rx, y2, "Iran hits Bahrain; tankers struck",
-              font(SERIF_B, 30), rw, 36)
-    y2 += 4
-    y2 = para(d, rx, y2,
-              "Iran's Revolutionary Guards fired missiles and drones at US "
-              "bases in Bahrain late on Saturday. Bahrain says a civilian "
-              "industrial facility was hit and a fire broke out; no one was "
-              "hurt. Two tankers were also hit in the Strait of Hormuz.",
-              font(SERIF, 19), rw, 26)
-    y2 += 14
-    rule(d, rx, y2, rw, GREY, 1)
-    y2 += 12
-    d.text((rx, y2), "BY THE NUMBERS", font=f_kick, fill=RED)
-    y2 += 28
-    for big, small in [("35%", "electricity share by 2035"),
-                       ("0", "injuries in Bahrain"),
-                       ("36", "missing in Java factory fire")]:
-        d.text((rx, y2), big, font=font(SERIF_B, 24), fill=RED)
-        d.text((rx + 92, y2 + 4), small, font=font(SERIF, 17), fill=INK)
-        y2 += 30
-    assert y2 <= 630, f"right column overflow: {y2}"
 
-    # ---- Second row: three stories ----
-    y3 = 630
-    rule(d, M, y3, CW, INK, 2)
-    y3 += 12
-    col_w = (CW - 2 * 20) // 3
-    stories = [
+def lead_story(sheet):
+    col_x, col_w = EDGE, 596
+    top = 166
+    sheet.label(col_x, top, "CLIMATE", "sans-bold", 19, PALETTE["red"])
+    cursor = sheet.paragraph(col_x, top + 28, "COP31 deal drops fossil fuels",
+                             "serif-bold", 43, col_w, 50)
+    cursor += 6
+    morning_sea(sheet, col_x, cursor, col_w, 148)
+    cursor += 148 + 10
+    cursor = sheet.paragraph(
+        col_x, cursor,
+        "The final draft released in the early hours of Sunday in Antalya "
+        "makes no mention of fossil fuels in its ten pages. Electricity is "
+        "to supply 35% of final energy by 2035.",
+        "serif", 20, col_w, 27)
+    cursor += 4
+    cursor = sheet.paragraph(
+        col_x, cursor,
+        "Delegates vote on Sunday morning after two days of overtime.",
+        "serif-bold", 20, col_w, 27)
+    assert cursor <= 630, f"lead ran past its box: {cursor}"
+
+
+def gulf_column(sheet):
+    col_x, col_w = 668, SIDE - EDGE - 668
+    top = 166
+    sheet.label(col_x, top, "GULF", "sans-bold", 19, PALETTE["red"])
+    cursor = sheet.paragraph(col_x, top + 28,
+                             "Iran hits Bahrain; tankers struck",
+                             "serif-bold", 30, col_w, 36)
+    cursor += 4
+    cursor = sheet.paragraph(
+        col_x, cursor,
+        "Iran's Revolutionary Guards fired missiles and drones at US bases "
+        "in Bahrain late on Saturday. Bahrain says a civilian industrial "
+        "facility was hit and a fire broke out; no one was hurt. Two tankers "
+        "were also hit in the Strait of Hormuz.",
+        "serif", 19, col_w, 26)
+    cursor += 14
+    sheet.hline(col_x, cursor, col_w, PALETTE["grey"], 1)
+    cursor += 12
+    sheet.label(col_x, cursor, "BY THE NUMBERS", "sans-bold", 19,
+                PALETTE["red"])
+    cursor += 28
+    for figure, caption in [("35%", "electricity share by 2035"),
+                            ("0", "injuries in Bahrain"),
+                            ("36", "missing in Java factory fire")]:
+        sheet.label(col_x, cursor, figure, "serif-bold", 24, PALETTE["red"])
+        sheet.label(col_x + 92, cursor + 4, caption, "serif", 17,
+                    PALETTE["ink"])
+        cursor += 30
+    assert cursor <= 630, f"gulf column ran past its box: {cursor}"
+
+
+def second_row(sheet):
+    top = 630
+    sheet.hline(EDGE, top, SIDE - 2 * EDGE, PALETTE["ink"], 2)
+    top += 12
+    col_w = (SIDE - 2 * EDGE - 2 * 20) // 3
+    items = [
         ("DISASTER", "36 missing in Java fire",
          "Rescuers search on Sunday for 36 workers after a fire at a candy "
          "factory in Cikande. Three are dead."),
@@ -191,21 +240,24 @@ def main():
          "Minister Choi Kyo-jin quits on Sunday after last-minute "
          "anti-cheating rules."),
     ]
-    for i, (kick, head, body) in enumerate(stories):
-        sx = M + i * (col_w + 20)
-        d.text((sx, y3), kick, font=f_kick, fill=RED)
-        yy = para(d, sx, y3 + 26, head, font(SERIF_B, 21), col_w, 26)
-        yy += 4
-        yy = para(d, sx, yy, body, font(SERIF, 17), col_w, 20)
-        assert yy <= 790, f"story {i} overflow: {yy}"
+    for index, (kicker, headline, body) in enumerate(items):
+        col_x = EDGE + index * (col_w + 20)
+        sheet.label(col_x, top, kicker, "sans-bold", 19, PALETTE["red"])
+        bottom = sheet.paragraph(col_x, top + 26, headline, "serif-bold",
+                                 21, col_w, 26)
+        bottom += 4
+        bottom = sheet.paragraph(col_x, bottom, body, "serif", 17, col_w, 20)
+        assert bottom <= 790, f"story {index} ran past its box: {bottom}"
 
-    # ---- Briefs grid ----
-    y6 = 792
-    rule(d, M, y6, CW, INK, 2)
-    y6 += 10
-    d.text((M, y6), "THE DAY IN BRIEF", font=f_kick, fill=RED)
-    y6 += 30
-    briefs = [
+
+def briefs_grid(sheet):
+    top = 792
+    sheet.hline(EDGE, top, SIDE - 2 * EDGE, PALETTE["ink"], 2)
+    top += 10
+    sheet.label(EDGE, top, "THE DAY IN BRIEF", "sans-bold", 19,
+                PALETTE["red"])
+    top += 30
+    entries = [
         ("GULF", "Bahrain demands UN action over the industrial-site fire."),
         ("CLIMATE", "COP31 draft sets a 1-billion-tonne carbon-capture goal."),
         ("TRADE", "EU–Indonesia deal is set to take effect in early 2027, if ratified."),
@@ -213,39 +265,52 @@ def main():
         ("GULF", "Iran gathers 14 tankers at Kharg Island to test the US blockade."),
         ("EDUCATION", "111 cases of device cheating were caught at the Suneung."),
     ]
-    bw = (CW - 2 * 20) // 3
-    for i, (k, txt) in enumerate(briefs):
-        col, row = i % 3, i // 3
-        bx = M + col * (bw + 20)
-        by = y6 + row * 56
-        d.text((bx, by), k, font=font(SANS_B, 16), fill=RED)
-        end = para(d, bx, by + 20, txt, font(SERIF, 16), bw, 20)
-        assert end <= 948, f"brief {i} overflow: {end}"
+    cell_w = (SIDE - 2 * EDGE - 2 * 20) // 3
+    for index, (kicker, text) in enumerate(entries):
+        cell_x = EDGE + (index % 3) * (cell_w + 20)
+        cell_y = top + (index // 3) * 56
+        sheet.label(cell_x, cell_y, kicker, "sans-bold", 16, PALETTE["red"])
+        end = sheet.paragraph(cell_x, cell_y + 20, text, "serif", 16,
+                              cell_w, 20)
+        assert end <= 948, f"brief {index} ran past its box: {end}"
 
-    # ---- Ticker ----
-    ty = 950
-    d.rectangle([0, ty, W, ty + 40], fill=GREEN)
-    tick = ("COP31 VOTE DUE SUNDAY MORNING   ·   BAHRAIN DEMANDS UN ACTION   ·   "
-            "SEOUL MINISTER QUITS   ·   36 MISSING IN JAVA FIRE")
+
+def ticker(sheet):
+    top = 950
+    sheet.pen.rectangle([0, top, SIDE, top + 40], fill=PALETTE["green"])
+    line = ("COP31 VOTE DUE SUNDAY MORNING   ·   BAHRAIN DEMANDS UN ACTION"
+            "   ·   SEOUL MINISTER QUITS   ·   36 MISSING IN JAVA FIRE")
     size = 19
     while size > 10:
-        f_tick = font(SANS_B, size)
-        if d.textlength(tick, font=f_tick) <= 960:
+        if sheet.width_of(line, "sans-bold", size) <= 960:
             break
         size -= 1
-    tw = d.textlength(tick, font=f_tick)
-    d.text(((W - tw) / 2, ty + (40 - size) / 2 - 2), tick, font=f_tick,
-           fill=(247, 243, 234))
+    line_w = sheet.width_of(line, "sans-bold", size)
+    sheet.label((SIDE - line_w) / 2, top + (40 - size) / 2 - 2, line,
+                "sans-bold", size, PALETTE["cream"])
 
-    # ---- Footer ----
-    f_foot = font(SANS, 14)
-    foot = "THE WORLD — a one-page summary of Sunday 22 November 2026 · Sources: AP, Reuters, AFP, Korea JoongAng Daily, UKMTO"
-    d.text((M, 998), foot, font=f_foot, fill=GREY)
 
-    out = os.path.join(HERE, "entry.png")
-    img.save(out, format="PNG", optimize=True)
-    print("wrote", out, img.size, os.path.getsize(out), "bytes")
+def footer(sheet):
+    sheet.label(
+        EDGE, 998,
+        "THE WORLD — a one-page summary of Sunday 22 November 2026 · "
+        "Sources: AP, Reuters, AFP, Korea JoongAng Daily, UKMTO",
+        "sans", 14, PALETTE["grey"])
+
+
+def build():
+    sheet = Sheet()
+    masthead(sheet)
+    lead_story(sheet)
+    gulf_column(sheet)
+    second_row(sheet)
+    briefs_grid(sheet)
+    ticker(sheet)
+    footer(sheet)
+    target = sheet.save()
+    print("wrote", target, sheet.image.size,
+          target.stat().st_size, "bytes")
 
 
 if __name__ == "__main__":
-    main()
+    build()
