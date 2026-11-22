@@ -1,29 +1,31 @@
 #!/usr/bin/env python3
-"""Entrypoint: write the finished front page to /output/entry.png.
+"""Write the rendered front page into the sandbox output directory.
 
-Standard library only. The image is drawn by render.py at build time and
-shipped in this repository, so every run writes the same bytes.
+The image itself is produced by render.py at build time and shipped in
+this repository. This entrypoint only copies it, using the standard
+library, so both grading runs write the same bytes.
 """
-import os
+import hashlib
 import sys
+from pathlib import Path
 
-HERE = os.path.dirname(os.path.abspath(__file__))
+SOURCE = Path(__file__).resolve().parent / "entry.png"
+DEST_DIR = Path("/output")
+DEST = DEST_DIR / "entry.png"
 
 
-def main():
-    src = os.path.join(HERE, "entry.png")
-    os.makedirs("/output", exist_ok=True)
-    dst = os.path.join("/output", "entry.png")
-    with open(src, "rb") as handle:
-        data = handle.read()
-    with open(dst, "wb") as handle:
-        handle.write(data)
-    with open(dst, "rb") as handle:
-        written = handle.read()
-    if written != data:
-        raise SystemExit("copy mismatch: output differs from entry.png")
-    print(f"wrote {dst} ({len(data)} bytes, verified)")
+def digest(data):
+    return hashlib.sha256(data).hexdigest()
+
+
+def run():
+    payload = SOURCE.read_bytes()
+    DEST_DIR.mkdir(parents=True, exist_ok=True)
+    DEST.write_bytes(payload)
+    if digest(DEST.read_bytes()) != digest(payload):
+        raise SystemExit("output does not match entry.png")
+    print(f"wrote {DEST} ({len(payload)} bytes, verified)")
 
 
 if __name__ == "__main__":
-    sys.exit(main())
+    sys.exit(run())
